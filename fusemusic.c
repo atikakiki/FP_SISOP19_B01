@@ -24,13 +24,11 @@
 mpg123_handle *mh = NULL;
 ao_device *dev = NULL;
 
-// static const char *dirpath = "/home/izzud/";
+static const char *dirpath = "/home/kiki/";
 
 static int xmp_getattr(const char *path, struct stat *stbuf){
     int res;
-	char fpath[1000], depath[1000];
-    strcpy(depath,path);
-    encrypt(depath);
+	char fpath[1000];
 	sprintf(fpath,"%s%s", dirpath, depath);
 
 	res = lstat(fpath, stbuf);
@@ -42,15 +40,13 @@ static int xmp_getattr(const char *path, struct stat *stbuf){
 }
 
 static int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi){
-    char fpath[1000], depath[1000];
+    char fpath[1000];
 	if(strcmp(path,"/") == 0){
 		path=dirpath;
 		sprintf(fpath,"%s",path);
 	}
 	else {
-        strcpy(depath, path);
-        encrypt(depath);
-        sprintf(fpath, "%s%s",dirpath,depath);
+        sprintf(fpath, "%s%s",dirpath,path);
     }
     int res = 0;
 
@@ -65,75 +61,45 @@ static int xmp_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_
 		return -errno;
 
 	while ((de = readdir(dp)) != NULL){
-		struct stat st;
-        char *owner, *group;
-        memset(&st, 0, sizeof(st));
-        
-        //use FULLPATH
-        char full[1000];
-        snprintf(full, 1000, "%s/%s", dirpath, de->d_name);
-        stat(full, &st);
+		printf("mama\n");
+		if(de->d_type == DT_DIR)
+		{
+			if(strcmp(de->d_name,"..") != 0 && strcmp(de->d_name,".") != 0)
+			{
+				char bukafolder[1000];
+				sprintf(bukafolder, "%s/%s", path, de->d_name);
+				res = panggilan(bukafolder,buf,filler,offset,fi);
+			}
+		}
 
-		st.st_ino = de->d_ino;
-		st.st_mode = de->d_type << 12;
-
-        if( !( !strcmp(de->d_name, "..") || !strcmp(de->d_name, ".")) ){
-            struct passwd *pw = getpwuid(st.st_uid);
-            struct group  *gr = getgrgid(st.st_gid);
-
-            owner = pw->pw_name;
-            group = gr->gr_name;
-
-            //get file's permission for Other
-            int prm = st.st_mode & S_IRWXO;
-
-            // printf("%s %s %d %s %d\n", de->d_name, owner, (int)tmp.st_uid, group, (int)tmp.st_gid);
-
-            if(!strcmp(group, "rusak") && prm < 4 && (!strcmp(owner, "ic_controller") || !strcmp(owner, "chipset"))){
-                FILE    *in = NULL;
-                char    *date = getLastAccess(st),
-                        fmiris[] = "filemiris.txt",
-                        buff[1000],
-                        tpath[1000];
-
-                snprintf(buff, 1000, "%s Last Accessed: %s\n", de->d_name, date);
-                encrypt(fmiris);
-                snprintf(tpath, 1000, "%s/%s", dirpath, fmiris);
-                in = fopen(tpath, "a");
-
-                if(in != NULL){
-                    fputs(buff, in);
-                    fclose(in);
-                }
-                free(date);
-                remove(full);
-            }
-            else
-            {
-                char cpy[1024];
-                strcpy(cpy,de->d_name);
-                decrypt(cpy);
-                
-                res = filler(buf,cpy, &st, 0);
-                if(res!=0) break;
-            }
-            
-        } 
-	}
+		else if(de->d_type !=DT_DIR)
+		{
+			if(strstr(de->d_name,".mp3"))
+			{
+				InsertAtTail(fpath,de->d_name);
+				struct stat st;
+                		memset(&st, 0, sizeof(st));
+                		st.st_ino = de->d_ino;
+                		st.st_mode = de->d_type << 12;
+                		res = (filler(buf, de->d_name, &st, 0));
+                        	if(res!=0) break;
+			}
+		}
+}
 
 	closedir(dp);
 	return 0;
 }
 
 static int xmp_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi){
-    char fpath[1000], depath[1000];
-
-    strcpy(depath, path);
-    encrypt(depath);
-    sprintf(fpath, "%s%s",dirpath,depath);
-	
-    int res = 0;
-    int fd = 0 ;
+    char fpath[1000];if(strcmp(path,"/") == 0)
+	{
+		path=dirpath;
+		sprintf(fpath,"%s",path);
+	}
+	else sprintf(fpath, "%s%s",dirpath,path);
+	int res = 0;
+  int fd = 0 ;
 
 	(void) fi;
 	fd = open(fpath, O_RDONLY);
@@ -192,27 +158,6 @@ size_t play_stream(void *buffer, size_t size, size_t nmemb, void *userp)
 
 int main(int argc, char *argv[])
 {
-    if(argc < 2)
-        return 0;
-
-    ao_initialize();
-    
-    mpg123_init();
-    mh = mpg123_new(NULL, NULL);
-    mpg123_open_feed(mh);
-
-    CURL *curl = curl_easy_init();
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, play_stream);
-    curl_easy_setopt(curl, CURLOPT_URL, argv[1]);
-    curl_easy_perform(curl);
-    curl_easy_cleanup(curl);
-
-    mpg123_close(mh);
-    mpg123_delete(mh);
-    mpg123_exit();
-
-    ao_close(dev);
-    ao_shutdown();
-
-    return 0;
+	umask(0);
+	return fuse_main(argc, argv, &xmp_oper, NULL);
 }
